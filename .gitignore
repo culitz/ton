@@ -12,3 +12,5 @@ test/regression-tests.cache/
 *.swp
 **/*build*/
 .idea
+.vscode/*
+third-party/*

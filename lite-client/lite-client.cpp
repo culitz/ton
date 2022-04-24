@@ -62,6 +62,7 @@
 #include "openssl/rand.hpp"
 #include "crypto/vm/utils.h"
 #include "crypto/common/util.h"
+#include "lite-client/json_helper.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
@@ -226,6 +227,20 @@ bool TestNode::show_new_blkids(bool all) {
   }
   return cnt;
 }
+
+bool TestNode::new_blkids(std::vector<ton::BlockIdExt>& ids, bool all) {
+  if (all) {
+    shown_blk_ids_ = 0;
+  }
+  int cnt = 0;
+  while (shown_blk_ids_ < known_blk_ids_.size()) {
+    ids.push_back(known_blk_ids_[shown_blk_ids_]);
+    ++shown_blk_ids_;
+    ++cnt;
+  }
+  return cnt;
+}
+
 
 bool TestNode::complete_blkid(ton::BlockId partial_blkid, ton::BlockIdExt& complete_blkid) const {
   auto n = known_blk_ids_.size();
@@ -436,13 +451,37 @@ void TestNode::got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt
   } else if (mc_last_id_.id.seqno < blkid.id.seqno) {
     mc_last_id_ = blkid;
   }
-  td::TerminalIO::out() << "latest masterchain block known to server is " << blkid.to_str();
-  if (created > 0) {
-    td::TerminalIO::out() << " created at " << created << " (" << now() - created << " seconds ago)\n";
-  } else {
+
+  if(json_out_) {
+    td::JsonBuilder out_json;
+    auto jo = out_json.enter_object();
+    liteclient::JsonHelper helper;
+    helper.append<td::JsonObjectScope, ton::BlockIdExt>(jo, blkid);
+
+    auto blk_ids_ptr = std::shared_ptr<std::vector<ton::BlockIdExt>>(new std::vector<ton::BlockIdExt>{});
+    new_blkids(*blk_ids_ptr);
+    td::JsonBuilder blk_list_builder;
+    auto blk_list = blk_list_builder.enter_array();
+    helper.append<td::JsonArrayScope, std::vector<ton::BlockIdExt>>(blk_list, *blk_ids_ptr);
+    blk_list.leave();
+
+    jo("blocks", td::JsonRaw(blk_list_builder.string_builder().as_cslice()));
+    jo.leave();
+
     td::TerminalIO::out() << "\n";
+    td::TerminalIO::out() << out_json.string_builder().as_cslice();
+    td::TerminalIO::out() << "\n";
+
   }
-  show_new_blkids();
+  else {
+    td::TerminalIO::out() << "latest masterchain block known to server is " << blkid.to_str();
+    if (created > 0) {
+      td::TerminalIO::out() << " created at " << created << " (" << now() - created << " seconds ago)\n";
+    } else {
+      td::TerminalIO::out() << "\n";
+    }
+    show_new_blkids();
+  }
 }
 
 void TestNode::got_server_mc_block_id_ext(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int mode, int version,
@@ -2498,29 +2537,40 @@ void TestNode::got_all_shards(ton::BlockIdExt blk, td::BufferSlice proof, td::Bu
     }
     auto root = R.move_as_ok();
     auto out = td::TerminalIO::out();
-    out << "shard configuration is ";
+    if(!json_out_)
+      out << "shard configuration is ";
     std::ostringstream outp;
     block::gen::t_ShardHashes.print_ref(print_limit_, outp, root);
     vm::load_cell_slice(root).print_rec(print_limit_, outp);
-    out << outp.str();
+    if(!json_out_)
+      out << outp.str();
     block::ShardConfig sh_conf;
     if (!sh_conf.unpack(vm::load_cell_slice_ref(root))) {
       out << "cannot extract shard block list from shard configuration\n";
     } else {
       auto ids = sh_conf.get_shard_hash_ids(true);
-      int cnt = 0;
-      for (auto id : ids) {
-        auto ref = sh_conf.get_shard_hash(ton::ShardIdFull(id));
-        if (ref.not_null()) {
-          register_blkid(ref->top_block_id());
-          out << "shard #" << ++cnt << " : " << ref->top_block_id().to_str() << " @ " << ref->created_at() << " lt "
-              << ref->start_lt() << " .. " << ref->end_lt() << std::endl;
-        } else {
-          out << "shard #" << ++cnt << " : " << id.to_str() << " (cannot unpack)\n";
+      if(!json_out_){
+        int cnt = 0;
+        for (auto id : ids) {
+          auto ref = sh_conf.get_shard_hash(ton::ShardIdFull(id));
+          if (ref.not_null()) {
+            register_blkid(ref->top_block_id());
+            out << "shard #" << ++cnt << " : " << ref->top_block_id().to_str() << " @ " << ref->created_at() << " lt "
+                << ref->start_lt() << " .. " << ref->end_lt() << std::endl;
+          } else {
+            out << "shard #" << ++cnt << " : " << id.to_str() << " (cannot unpack)\n";
+          }
         }
+      } else {
+        liteclient::JsonHelper json_helper;
+        td::JsonBuilder json_builder;
+        auto scope = json_builder.enter_array();
+        json_helper.append<td::JsonArrayScope, std::vector<ton::BlockId>>(scope, ids);
+        out << json_builder.string_builder().as_cslice();
+        out << "\n" << std::endl;
       }
     }
-    if (!filename.empty()) {
+    if (!filename.empty() && !json_out_) {
       auto res1 = td::write_file(filename, data.as_slice());
       if (res1.is_error()) {
         LOG(ERROR) << "cannot write shard configuration to file `" << filename << "` : " << res1.move_as_error();
@@ -2530,7 +2580,8 @@ void TestNode::got_all_shards(ton::BlockIdExt blk, td::BufferSlice proof, td::Bu
       }
     }
   }
-  show_new_blkids();
+  if(!json_out_)
+    show_new_blkids();
 }
 
 bool TestNode::parse_get_config_params(ton::BlockIdExt blkid, int mode, std::string filename, std::vector<int> params) {
@@ -4279,6 +4330,10 @@ int main(int argc, char* argv[]) {
     dup2(FileLog.get_native_fd().fd(), 2);
   });
 #endif
+
+  p.add_option('j', "json", "json output", [&x]() {
+    x.get_actor_unsafe().set_json_out(true);
+  });
 
   vm::init_op_cp0(true);  // enable vm debug
 

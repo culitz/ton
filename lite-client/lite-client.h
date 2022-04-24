@@ -89,7 +89,7 @@ class TestNode : public td::actor::Actor {
   std::map<td::Bits256, Ref<vm::Cell>> cell_cache_;
 
   std::unique_ptr<ton::adnl::AdnlExtClient::Callback> make_callback();
-
+  bool json_out_ = false;
   using creator_stats_func_t =
       std::function<bool(const td::Bits256&, const block::DiscountedCounter&, const block::DiscountedCounter&)>;
 
@@ -342,6 +342,7 @@ class TestNode : public td::actor::Actor {
   bool parse_stack_values(std::vector<vm::StackEntry>& values);
   bool register_blkid(const ton::BlockIdExt& blkid);
   bool show_new_blkids(bool all = false);
+  bool new_blkids(std::vector<ton::BlockIdExt>& ids, bool all = false);
   bool complete_blkid(ton::BlockId partial_blkid, ton::BlockIdExt& complete_blkid) const;
   td::Promise<td::Unit> trivial_promise();
   template <typename T>
@@ -434,4 +435,8 @@ class TestNode : public td::actor::Actor {
   }
 
   void run();
+
+  void set_json_out(bool value) {
+    json_out_ = value;
+  }
 };
