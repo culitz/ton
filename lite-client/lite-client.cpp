@@ -1613,7 +1613,7 @@ void TestNode::send_compute_complaint_price_query(ton::StdSmcAddress elector_add
   params.emplace_back(td::make_refint(refs));
   params.emplace_back(td::make_refint(expires_in));
   auto P = td::PromiseCreator::lambda(
-      [this, expires_in, bits, refs, chash, filename](td::Result<std::vector<vm::StackEntry>> R) {
+      [expires_in, bits, refs, chash, filename](td::Result<std::vector<vm::StackEntry>> R) {
         if (R.is_error()) {
           LOG(ERROR) << R.move_as_error();
           return;
@@ -1944,6 +1944,7 @@ void TestNode::got_account_state(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, t
   account_state.shard_proof = std::move(shard_proof);
   account_state.proof = std::move(proof);
   account_state.state = std::move(state);
+
   auto r_info = account_state.validate(ref_blk, block::StdAddress(workchain, addr));
   if (r_info.is_error()) {
     LOG(ERROR) << r_info.error().message();
@@ -1953,20 +1954,30 @@ void TestNode::got_account_state(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, t
   auto info = r_info.move_as_ok();
   if (mode < 0) {
     if (info.root.not_null()) {
-      out << "account state is ";
-      std::ostringstream outp;
-      block::gen::t_Account.print_ref(print_limit_, outp, info.root);
-      vm::load_cell_slice(info.root).print_rec(print_limit_, outp);
-      out << outp.str();
-      out << "last transaction lt = " << info.last_trans_lt << " hash = " << info.last_trans_hash.to_hex() << std::endl;
+      if(!json_out_) {
+          out << "account state is ";
+          std::ostringstream outp;
+          block::gen::t_Account.print_ref(print_limit_, outp, info.root);
+          vm::load_cell_slice(info.root).print_rec(print_limit_, outp);
+          out << outp.str();
+          out << "last transaction lt = " << info.last_trans_lt << " hash = " << info.last_trans_hash.to_hex() << std::endl;
+      }
       block::gen::Account::Record_account acc;
       block::gen::AccountStorage::Record store;
       block::CurrencyCollection balance;
       if (tlb::unpack_cell(info.root, acc) && tlb::csr_unpack(acc.storage, store) && balance.unpack(store.balance)) {
-        out << "account balance is " << balance.to_str() << std::endl;
+        if(json_out_) {
+            liteclient::JsonHelper helper;
+            out << helper.account_state(addr, store, info, workchain) << std::endl;
+        } else
+            out << "account balance is " << balance.to_str() << std::endl;
       }
     } else {
-      out << "account state is empty" << std::endl;
+      if(!json_out_)
+        out << "account state is empty" << std::endl;
+      else
+        out << liteclient::JsonHelper().error_message("account state is empty") << std::endl;
+
     }
   } else if (info.root.not_null()) {
     block::gen::Account::Record_account acc;
@@ -1974,18 +1985,33 @@ void TestNode::got_account_state(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, t
     block::CurrencyCollection balance;
     if (!(tlb::unpack_cell(info.root, acc) && tlb::csr_unpack(acc.storage, store) && balance.unpack(store.balance))) {
       LOG(ERROR) << "error unpacking account state";
+      if(json_out_)
+        out << liteclient::JsonHelper().error_message("error unpacking account state") << std::endl;
       return;
     }
-    out << "account balance is " << balance.to_str() << std::endl;
+    if(!json_out_)
+        out << "account balance is " << balance.to_str() << std::endl;
+
     int tag = block::gen::t_AccountState.get_tag(*store.state);
+
+    std::string msg = "";
     switch (tag) {
       case block::gen::AccountState::account_uninit:
-        out << "account not initialized (no StateInit to save into file)" << std::endl;
-        return;
+        msg = "account not initialized (no StateInit to save into file)";
+        break;
       case block::gen::AccountState::account_frozen:
-        out << "account frozen (no StateInit to save into file)" << std::endl;
+        msg = "account frozen (no StateInit to save into file)";
+        break;
+    }
+
+    if(msg != "") {
+        if(!json_out_)
+            out << msg << std::endl;
+        else
+           out << liteclient::JsonHelper().error_message(msg) << std::endl;
         return;
     }
+
     CHECK(store.state.write().fetch_ulong(1) == 1);  // account_init$1 _:StateInit = AccountState;
     block::gen::StateInit::Record state;
     CHECK(tlb::csr_unpack(store.state, state));
@@ -2021,8 +2047,10 @@ void TestNode::got_account_state(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, t
                  << filename << "` : " << res1.move_as_error();
       return;
     }
-    out << "written " << name << " of account " << workchain << ":" << addr.to_hex() << " to file `" << filename
-        << "` (" << len << " bytes)" << std::endl;
+    if(!json_out_) {
+        out << "written " << name << " of account " << workchain << ":" << addr.to_hex() << " to file `" << filename
+            << "` (" << len << " bytes)" << std::endl;
+    }
   } else {
     out << "account state is empty (nothing saved to file `" << filename << "`)" << std::endl;
   }
@@ -2999,7 +3027,7 @@ void TestNode::got_state(ton::BlockIdExt blkid, ton::RootHash root_hash, ton::Fi
 }
 
 bool TestNode::get_show_block_header(ton::BlockIdExt blkid, int mode) {
-  return get_block_header(blkid, mode, [this, blkid](td::Result<BlockHdrInfo> R) {
+  return get_block_header(blkid, mode, [this](td::Result<BlockHdrInfo> R) {
     if (R.is_error()) {
       LOG(ERROR) << "unable to fetch block header: " << R.move_as_error();
     } else {
@@ -3261,7 +3289,7 @@ bool TestNode::get_creator_stats(ton::BlockIdExt blkid, int mode, unsigned req_c
   auto& os = *osp;
   return get_creator_stats(
       blkid, mode, req_count, start_after, min_utime,
-      [min_utime, &os](const td::Bits256& key, const block::DiscountedCounter& mc_cnt,
+      [&os](const td::Bits256& key, const block::DiscountedCounter& mc_cnt,
                        const block::DiscountedCounter& shard_cnt) -> bool {
         os << key.to_hex() << " mc_cnt:" << mc_cnt << " shard_cnt:" << shard_cnt << std::endl;
         return true;
@@ -3530,7 +3558,7 @@ bool TestNode::load_creator_stats(std::unique_ptr<TestNode::ValidatorLoadInfo> l
   ton::UnixTime min_utime = info.valid_since - 1000;
   return get_creator_stats(
       info.blk_id, 1000, min_utime,
-      [min_utime, &info](const td::Bits256& key, const block::DiscountedCounter& mc_cnt,
+      [&info](const td::Bits256& key, const block::DiscountedCounter& mc_cnt,
                          const block::DiscountedCounter& shard_cnt) -> bool {
         info.store_record(key, mc_cnt, shard_cnt);
         return true;
