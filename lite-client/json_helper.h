@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <memory>
+#include <map>
 #include <ton/ton-types.h>
 #include <td/utils/JsonBuilder.h>
 #include "block/block-auto.h"
@@ -61,7 +62,7 @@ private:
 
     void append(JsonObjectScope& scope, ton::StdSmcAddress& addr);
 
-    void append(JsonObjectScope& scope, block::AccountState::Info& info);
+    void append(JsonObjectScope& scope, block::AccountState::Info info);
 
 
     td::Slice got_server_mc_block_id_json(

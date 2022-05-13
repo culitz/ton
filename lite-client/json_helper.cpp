@@ -91,11 +91,25 @@ void JsonHelper::append(JsonObjectScope &scope, ton::StdSmcAddress& addr) {
     scope("address", stream.str());
 }
 
-void JsonHelper::append(JsonObjectScope &scope, block::AccountState::Info& info) {
+void JsonHelper::append(JsonObjectScope &scope, block::AccountState::Info info) {
     std::stringstream stream;
     stream << info.last_trans_lt;
     scope("lastTransactTimeLC", stream.str());
     scope("lastTransactHash", info.last_trans_hash.to_hex());
+    stream.str(string());
+
+    {
+        using namespace vm;
+        CellSlice root_slice = load_cell_slice(info.root);
+        std::vector<string> fields = {"code", "data"};
+        for(unsigned int i = 0; i < fields.size(); i++) {
+            Ref<Cell> cell = root_slice.prefetch_ref(i);
+            CellSlice slice = load_cell_slice(cell);
+            slice.dump_hex(stream);
+            scope(fields[i], stream.str());
+            stream.str(string());
+        }
+    }
 }
 
 td::Slice JsonHelper::got_server_mc_block_id_json(
