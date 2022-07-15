@@ -64,6 +64,9 @@
 #include "crypto/common/util.h"
 #include "lite-client/json_helper.h"
 
+#include "lite-client/serializers/transactions_serializer.h"
+#include "lite-client/serializers/account_serializer.h"
+
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #include <fcntl.h>
@@ -218,14 +221,20 @@ bool TestNode::show_new_blkids(bool all) {
   if (all) {
     shown_blk_ids_ = 0;
   }
-  int cnt = 0;
-  while (shown_blk_ids_ < known_blk_ids_.size()) {
-    td::TerminalIO::out() << "BLK#" << shown_blk_ids_ + 1 << " = " << known_blk_ids_[shown_blk_ids_].to_str()
-                          << std::endl;
-    ++shown_blk_ids_;
-    ++cnt;
+  if(json_out_) {
+    std::string json = liteclient::JsonHelper().known(known_blk_ids_);
+    td::TerminalIO::out() << json << std::endl;
+    return true;
+  } else {
+      int cnt = 0;
+      while (shown_blk_ids_ < known_blk_ids_.size()) {
+        td::TerminalIO::out() << "BLK#" << shown_blk_ids_ + 1 << " = " << known_blk_ids_[shown_blk_ids_].to_str()
+                              << std::endl;
+        ++shown_blk_ids_;
+        ++cnt;
+      }
+      return cnt;
   }
-  return cnt;
 }
 
 bool TestNode::new_blkids(std::vector<ton::BlockIdExt>& ids, bool all) {
@@ -453,25 +462,11 @@ void TestNode::got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt
   }
 
   if(json_out_) {
-    td::JsonBuilder out_json;
-    auto jo = out_json.enter_object();
     liteclient::JsonHelper helper;
-    helper.append<td::JsonObjectScope, ton::BlockIdExt>(jo, blkid);
-
     auto blk_ids_ptr = std::shared_ptr<std::vector<ton::BlockIdExt>>(new std::vector<ton::BlockIdExt>{});
     new_blkids(*blk_ids_ptr);
-    td::JsonBuilder blk_list_builder;
-    auto blk_list = blk_list_builder.enter_array();
-    helper.append<td::JsonArrayScope, std::vector<ton::BlockIdExt>>(blk_list, *blk_ids_ptr);
-    blk_list.leave();
-
-    jo("blocks", td::JsonRaw(blk_list_builder.string_builder().as_cslice()));
-    jo.leave();
-
-    td::TerminalIO::out() << "\n";
-    td::TerminalIO::out() << out_json.string_builder().as_cslice();
-    td::TerminalIO::out() << "\n";
-
+    std::string s = helper.got_server_mc_block_id_json(blkid, *blk_ids_ptr);
+    td::TerminalIO::out() << s << std::endl;
   }
   else {
     td::TerminalIO::out() << "latest masterchain block known to server is " << blkid.to_str();
@@ -1967,8 +1962,13 @@ void TestNode::got_account_state(ton::BlockIdExt ref_blk, ton::BlockIdExt blk, t
       block::CurrencyCollection balance;
       if (tlb::unpack_cell(info.root, acc) && tlb::csr_unpack(acc.storage, store) && balance.unpack(store.balance)) {
         if(json_out_) {
-            liteclient::JsonHelper helper;
-            out << helper.account_state(addr, store, info, workchain) << std::endl;
+            json_serializer::AccountSerializer serializer;
+            serializer.add(info);
+            std::string json = serializer.addAccountStorage(store)
+              .addStdSmcAddress(addr)
+              .addWorkchain(workchain)
+              .json();
+            out << json << std::endl;
         } else
             out << "account balance is " << balance.to_str() << std::endl;
       }
@@ -2125,15 +2125,27 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
     int tag = block::gen::t_AccountState.get_tag(*store.state);
     switch (tag) {
       case block::gen::AccountState::account_uninit:
-        LOG(ERROR) << "account " << workchain << ":" << addr.to_hex()
-                   << " not initialized yet (cannot run any methods)";
-        promise.set_error(td::Status::Error(PSLICE() << "account " << workchain << ":" << addr.to_hex()
-                                                     << " not initialized yet (cannot run any methods)"));
+        if(json_out_) {
+            liteclient::JsonHelper helper;
+            std::string err_msg = "account not initialized yet (cannot run any methods)";
+            out << helper.error_message(err_msg) + "\n";
+        } else {
+            LOG(ERROR) << "account " << workchain << ":" << addr.to_hex()
+                       << " not initialized yet (cannot run any methods)";
+            promise.set_error(td::Status::Error(PSLICE() << "account " << workchain << ":" << addr.to_hex()
+                                                         << " not initialized yet (cannot run any methods)"));
+        }
         return;
       case block::gen::AccountState::account_frozen:
-        LOG(ERROR) << "account " << workchain << ":" << addr.to_hex() << " frozen (cannot run any methods)";
-        promise.set_error(td::Status::Error(PSLICE() << "account " << workchain << ":" << addr.to_hex()
-                                                     << " frozen (cannot run any methods)"));
+        if(json_out_) {
+            liteclient::JsonHelper helper;
+            std::string err_msg = "account frozen (cannot run any methods)";
+            out << helper.error_message(err_msg) + "\n";
+        } else {
+            LOG(ERROR) << "account " << workchain << ":" << addr.to_hex() << " frozen (cannot run any methods)";
+            promise.set_error(td::Status::Error(PSLICE() << "account " << workchain << ":" << addr.to_hex()
+                                                         << " frozen (cannot run any methods)"));
+        }
         return;
     }
     CHECK(store.state.write().fetch_ulong(1) == 1);  // account_init$1 _:StateInit = AccountState;
@@ -2388,6 +2400,7 @@ bool unpack_message(std::ostream& os, Ref<vm::Cell> msg, int mode) {
       }
       os << " LT:" << info.created_lt << " UTIME:" << info.created_at;
       td::RefInt256 value;
+
       Ref<vm::Cell> extra;
       if (!block::unpack_CurrencyCollection(info.value, value, extra)) {
         LOG(ERROR) << "cannot unpack message value";
@@ -2433,50 +2446,76 @@ void TestNode::got_last_transactions(std::vector<ton::BlockIdExt> blkids, td::Bu
   unsigned c = 0;
   auto out = td::TerminalIO::out();
   CHECK(!account_state_info.transactions.empty());
+
+  json_serializer::TransactionSerializeer serializer;
+
   for (auto& info : account_state_info.transactions) {
+    serializer.add(info);
+
     const auto& blkid = info.blkid;
-    out << "transaction #" << c << " from block " << blkid.to_str() << (dump ? " is " : "\n");
+    if(!json_out_)
+        out << "transaction #" << c << " from block " << blkid.to_str() << (dump ? " is " : "\n");
+
     if (dump) {
-      std::ostringstream outp;
-      block::gen::t_Transaction.print_ref(print_limit_, outp, info.transaction);
-      vm::load_cell_slice(info.transaction).print_rec(print_limit_, outp);
-      out << outp.str();
-    }
+        std::ostringstream outp;
+        block::gen::t_Transaction.print_ref(print_limit_, outp, info.transaction);
+        vm::load_cell_slice(info.transaction).print_rec(print_limit_, outp);
+        if(!json_out_)
+            out << outp.str();
+     }
+
     block::gen::Transaction::Record trans;
     if (!tlb::unpack_cell(info.transaction, trans)) {
-      LOG(ERROR) << "cannot unpack transaction #" << c;
-      return;
+        LOG(ERROR) << "cannot unpack transaction #" << c;
+        return;
     }
-    out << "  time=" << trans.now << " outmsg_cnt=" << trans.outmsg_cnt << std::endl;
+
+    if(!json_out_)
+        out << "  time=" << trans.now << " outmsg_cnt=" << trans.outmsg_cnt << std::endl;
+
     auto in_msg = trans.r1.in_msg->prefetch_ref();
-    if (in_msg.is_null()) {
-      out << "  (no inbound message)" << std::endl;
+    if(json_out_) {
+        serializer.addMessageIn(in_msg);
     } else {
-      out << "  inbound message: " << message_info_str(in_msg, 2 * 0) << std::endl;
-      if (dump) {
-        out << "    " << block::gen::t_Message_Any.as_string_ref(in_msg, 4);  // indentation = 4 spaces
-      }
+        if (in_msg.is_null()) {
+          if(!json_out_)
+            out << "  (no inbound message)" << std::endl;
+        } else {
+          if(!json_out_)
+            out << "  inbound message: " << message_info_str(in_msg, 2 * 0) << std::endl;
+          if (dump) {
+            if(!json_out_)
+                out << "    " << block::gen::t_Message_Any.as_string_ref(in_msg, 4);  // indentation = 4 spaces
+          }
+        }
     }
     vm::Dictionary dict{trans.r1.out_msgs, 15};
     for (int x = 0; x < trans.outmsg_cnt && x < 100; x++) {
       auto out_msg = dict.lookup_ref(td::BitArray<15>{x});
-      out << "  outbound message #" << x << ": " << message_info_str(out_msg, 1 * 0) << std::endl;
-      if (dump) {
-        out << "    " << block::gen::t_Message_Any.as_string_ref(out_msg, 4);
+      if(!json_out_) {
+          out << "  outbound message #" << x << ": " << message_info_str(out_msg, 1 * 0) << std::endl;
+          if (dump) {
+            out << "    " << block::gen::t_Message_Any.as_string_ref(out_msg, 4);
+          }
       }
     }
     register_blkid(blkid);  // unsafe?
   }
   auto& last = account_state_info.transactions.back();
   if (last.prev_trans_lt > 0) {
-    out << "previous transaction has lt " << last.prev_trans_lt << " hash " << last.prev_trans_hash.to_hex()
-        << std::endl;
-    if (account_state_info.transactions.size() < count) {
-      LOG(WARNING) << "obtained less transactions than required";
+    if(!json_out_) {
+        out << "previous transaction has lt " << last.prev_trans_lt << " hash " << last.prev_trans_hash.to_hex()
+            << std::endl;
+        if (account_state_info.transactions.size() < count) {
+          LOG(WARNING) << "obtained less transactions than required";
+        }
     }
   } else {
-    out << "no preceding transactions (list complete)" << std::endl;
+    if(!json_out_)
+        out << "no preceding transactions (list complete)" << std::endl;
   }
+
+  out << serializer.json() << std::endl;
 }
 
 bool TestNode::get_block_transactions(ton::BlockIdExt blkid, int mode, unsigned count, ton::Bits256 acc_addr,
@@ -2591,11 +2630,8 @@ void TestNode::got_all_shards(ton::BlockIdExt blk, td::BufferSlice proof, td::Bu
         }
       } else {
         liteclient::JsonHelper json_helper;
-        td::JsonBuilder json_builder;
-        auto scope = json_builder.enter_array();
-        json_helper.append<td::JsonArrayScope, std::vector<ton::BlockId>>(scope, ids);
-        out << json_builder.string_builder().as_cslice();
-        out << "\n" << std::endl;
+        std::string json = json_helper.got_all_shards(ids);
+        out << json << "\n";
       }
     }
     if (!filename.empty() && !json_out_) {

@@ -6,69 +6,68 @@
 #include <td/utils/JsonBuilder.h>
 #include "block/block-auto.h"
 #include "crypto/block/block.h"
-#include"crypto/block/check-proof.h"
+#include "crypto/block/check-proof.h"
+
+#include "rapidjson/writer.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/prettywriter.h"
+#include "rapidjson/document.h"
+#include "serializers/fill-utils.h"
+
 
 namespace liteclient {
 
 using namespace td;
 using namespace block;
 
+typedef rapidjson::StringBuffer JsonBuffer;
+typedef rapidjson::Writer<rapidjson::StringBuffer> JsonWriter;
+typedef std::shared_ptr<JsonBuffer> JsonBufferPtr;
+typedef std::shared_ptr<JsonWriter> JsonWriterPtr;
+
+
 class JsonHelper {
 public:
     JsonHelper();
     virtual ~JsonHelper() {}
 
-    template<typename S, typename T>
-    void append(S& s, T& t) {
-        append(s, t);
-    }
+    std::string msg(std::string key, std::string msg);
+    std::string error_message(std::string msg);
+    std::string message(std::string msg);
 
     template<typename T>
-    td::Slice one_attr_obj(std::string key, T value) {
-        builder_ptr = std::shared_ptr<JsonBuilder>(new JsonBuilder);
-        auto jo = builder_ptr->enter_object();
-        jo(key, value);
-        jo.leave();
-        return builder_ptr->string_builder().as_cslice();
+    std::string to_json(T& t) {
+        // writer_ptr->SetIndent(' ', 4);
+        fill_json(t, *writer_ptr);
+        return std::string(buffer_ptr->GetString());
     }
 
-    td::Slice account_state(
+    std::string got_server_mc_block_id_json(
+        ton::BlockIdExt& blockId, 
+        vector<ton::BlockIdExt>& newBlocks
+    );
+
+    std::string account_state(
             ton::StdSmcAddress&,
             gen::AccountStorage::Record&,
             AccountState::Info&,
             ton::WorkchainId&
     );
 
-    td::Slice error_message(std::string msg);
-
-    td::Slice message(std::string msg);
+    std::string got_all_shards(const std::vector<ton::BlockId>& ids);
+    std::string known(const std::vector<ton::BlockIdExt>& known);
+    std::string got_last_transactions(const std::vector<Transaction::Info>& transactions);
 
 private:
-    std::shared_ptr<JsonBuilder> builder_ptr;
-    
-    void append(JsonObjectScope& scope, ton::BlockId& blockId);
+    JsonBufferPtr buffer_ptr;
+    JsonWriterPtr writer_ptr;
 
-    void append(JsonObjectScope& scope, ton::BlockIdExt& blockIdExt);
-
-    void append(JsonArrayScope& scope, std::vector<ton::BlockIdExt>& blockIds);
-
-    void append(JsonArrayScope& scope, std::vector<ton::BlockId>& blockIds);
-
-    void append(JsonObjectScope& scope, block::gen::AccountStorage& account);
-
-    void append(JsonObjectScope& scope, block::CurrencyCollection& balance);
-
-    void append(JsonObjectScope& scope, block::gen::AccountStorage::Record& store);
-
-    void append(JsonObjectScope& scope, ton::StdSmcAddress& addr);
-
-    void append(JsonObjectScope& scope, block::AccountState::Info info);
-
-
-    td::Slice got_server_mc_block_id_json(
-        ton::BlockIdExt& blockId, 
-        vector<ton::BlockIdExt>& newBlocks
-    );
+    void fill_json(const ton::BlockId& blockId, bool scope = true);
+    void fill_json(const ton::BlockIdExt& blockIdExt, bool scope = true);
+    void fill_json(const vector<ton::BlockIdExt>& block_ids, bool scope = true);
+    void fill_json(const ton::StdSmcAddress& addr, bool scope = true);
+    void fill_json(const block::gen::AccountStorage::Record& store, bool scope = true);
+    void fill_json(const block::AccountState::Info info, bool scope = true);
 };
 
 }

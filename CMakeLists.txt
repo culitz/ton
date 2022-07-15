@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
 project(TON VERSION 0.5 LANGUAGES C CXX)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_CXX_STANDARD 17)
 #set(OPENSSL_USE_STATIC_LIBS TRUE)
 
 # Define the two required variables before including the source code for watching a git repository.
@@ -202,6 +203,7 @@ set(CMAKE_THREAD_PREFER_PTHREAD ON)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
+find_package(GSL REQUIRED)
 
 if (TON_ARCH AND NOT MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${TON_ARCH}")

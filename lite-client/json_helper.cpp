@@ -3,60 +3,148 @@
 namespace liteclient {
 
 JsonHelper::JsonHelper() {
-    builder_ptr = std::shared_ptr<td::JsonBuilder>(new td::JsonBuilder());
+    buffer_ptr = std::shared_ptr<JsonBuffer>(new JsonBuffer);
+    writer_ptr = std::shared_ptr<JsonWriter>(new JsonWriter(*buffer_ptr));
 }
 
-void JsonHelper::append(JsonObjectScope& scope, ton::BlockId& blockId) {
+std::string JsonHelper::got_server_mc_block_id_json(
+    ton::BlockIdExt& blockId, 
+    std::vector<ton::BlockIdExt>& newBlocks
+) {
+    writer_ptr->StartObject();
+    fill_json(blockId, false);
+    fill_json(newBlocks);
+    writer_ptr->EndObject();
+    return buffer_ptr->GetString();
+}
+
+std::string JsonHelper::account_state(
+        ton::StdSmcAddress& addr,
+        block::gen::AccountStorage::Record& store,
+        block::AccountState::Info& info,
+        ton::WorkchainId& workchain
+) {     
+     writer_ptr->StartObject();
+     fill_json(addr, false);
+     fill_json(store, false);
+     fill_json(info, false);
+     writer_ptr->Key("workchain");
+     writer_ptr->Int(workchain);
+     writer_ptr->EndObject();
+     return buffer_ptr->GetString();
+}
+
+std::string JsonHelper::got_all_shards(const std::vector<ton::BlockId>& ids) {
+    writer_ptr->StartArray();
+    for(auto& id: ids)
+        fill_json(id);
+    writer_ptr->EndArray();
+    return buffer_ptr->GetString();
+}
+
+std::string JsonHelper::known(const std::vector<ton::BlockIdExt>& known) {
+    writer_ptr->StartArray();
+    fill_json(known, false);
+    writer_ptr->EndArray();
+    return buffer_ptr->GetString();
+}
+
+std::string JsonHelper::got_last_transactions(const std::vector<Transaction::Info>& transactions) {
+    writer_ptr->StartArray();
+    for(const Transaction::Info& transaction : transactions) {
+        writer_ptr->EndObject();
+        writer_ptr->Key("fromBlock");
+        fill_json(transaction.blkid, false);
+        writer_ptr->Key("messages");
+        writer_ptr->StartArray();
+        writer_ptr->EndArray();
+    }
+    writer_ptr->EndArray();
+    return buffer_ptr->GetString();
+}
+
+std::string JsonHelper::msg(std::string key, std::string msg) {
+    writer_ptr->StartObject();
+    writer_ptr->Key(key.c_str());
+    writer_ptr->String(msg.c_str());
+    writer_ptr->EndObject();
+    return buffer_ptr->GetString();
+}
+
+std::string JsonHelper::error_message(std::string m) {
+    std::string key = "error";
+    return msg(key, m);
+}
+
+std::string JsonHelper::message(std::string m) {
+    std::string key = "message";
+    return msg(key, m);
+}
+
+void JsonHelper::fill_json(const ton::BlockId& blockId, bool scope) {
     char buffer[64];
     std::string shard_str = std::string{
         buffer, (unsigned)snprintf(buffer, 63, "%016llx",
         static_cast<unsigned long long>(blockId.shard))
     };
-
-    scope("workchain", blockId.workchain);
-    scope("shard", shard_str);
-    scope("seqno", std::to_string(blockId.seqno));
-    scope("strValue", blockId.to_str());
-    scope.leave();
+    std::string seqno = std::to_string(blockId.seqno);
+    if(scope)
+        writer_ptr->StartObject();
+    writer_ptr->Key("workchain");
+    writer_ptr->Int(blockId.workchain);
+    writer_ptr->Key("shard");
+    writer_ptr->String(shard_str.c_str());
+    writer_ptr->Key("seqno");
+    writer_ptr->String(seqno.c_str());
+    writer_ptr->Key("strValue");
+    writer_ptr->String(blockId.to_str().c_str());
+    if(scope)
+        writer_ptr->EndObject();
 }
 
-void JsonHelper::append(JsonObjectScope& scope, ton::BlockIdExt& blockIdExt) {
-    auto id_builder_ptr = std::shared_ptr<td::JsonBuilder>(new td::JsonBuilder());
-    auto sub_scope = id_builder_ptr->enter_object();
-    append<JsonObjectScope, ton::BlockId>(sub_scope, blockIdExt.id);
-    scope("id", td::JsonRaw(id_builder_ptr->string_builder().as_cslice()));
-    scope("rootHash", blockIdExt.root_hash.to_hex());
-    scope("fileHash", blockIdExt.file_hash.to_hex());
+void JsonHelper::fill_json(const ton::BlockIdExt& blockIdExt, bool scope) {
+    if(scope)
+        writer_ptr->StartObject();
+    writer_ptr->Key("id");
+    fill_json(blockIdExt.id);
+    writer_ptr->Key("rootHash");
+    writer_ptr->String(blockIdExt.root_hash.to_hex().c_str());
+    writer_ptr->Key("fileHash");
+    std::string file_hash = blockIdExt.file_hash.to_hex();  
+    writer_ptr->String(file_hash.c_str());
+    if(scope)
+        writer_ptr->EndObject();
 }
 
-void JsonHelper::append(JsonArrayScope& scope, std::vector<ton::BlockIdExt>& blockIdsExt) {
-    for(ton::BlockIdExt& id : blockIdsExt) {
-        td::JsonBuilder builder;
-        auto obj = builder.enter_object();
-        append<JsonObjectScope, ton::BlockIdExt>(obj, id);
-        obj.leave();
-        scope << td::JsonRaw(builder.string_builder().as_cslice());
+
+void JsonHelper::fill_json(const vector<ton::BlockIdExt>& block_ids, bool scope) {
+    if(scope) {
+        writer_ptr->Key("blocks");
+        writer_ptr->StartArray();
+    }
+    for(const ton::BlockIdExt& block_id : block_ids) {
+        fill_json(block_id);
+    }
+    if(scope) {
+        writer_ptr->EndArray();
     }
 }
 
-void JsonHelper::append(JsonArrayScope& scope, std::vector<ton::BlockId>& blockIds) {
-    for(ton::BlockId& id : blockIds) {
-        td::JsonBuilder builder;
-        auto obj = builder.enter_object();
-        append<JsonObjectScope, ton::BlockId>(obj, id);
-        obj.leave();
-        scope << td::JsonRaw(std::move(builder.string_builder().as_cslice()));
-    }
-    scope.leave();
+void JsonHelper::fill_json(const ton::StdSmcAddress& addr, bool scope) {
+    if(scope)
+        writer_ptr->StartObject();
+    std::stringstream stream;
+    stream << addr.to_hex();
+    writer_ptr->Key("address");
+    writer_ptr->String(stream.str().c_str());
+    if(scope)
+        writer_ptr->EndObject();
 }
 
-void JsonHelper::append(JsonObjectScope &scope, block::CurrencyCollection &balance) {
-    std::stringstream ss;
-    ss << balance.grams;
-    scope("balance", ss.str());
-}
+void JsonHelper::fill_json(const block::gen::AccountStorage::Record& store, bool scope) {
+    if(scope)
+        writer_ptr->StartObject();
 
-void JsonHelper::append(JsonObjectScope &scope, block::gen::AccountStorage::Record& store) {
     int tag = block::gen::t_AccountState.get_tag(*store.state);
     CurrencyCollection collect;
     collect.unpack(store.balance);
@@ -78,24 +166,30 @@ void JsonHelper::append(JsonObjectScope &scope, block::gen::AccountStorage::Reco
     default:
         break;
     }
-    scope("status", status_name);
-    scope("lastTransactLC", std::to_string(store.last_trans_lt));
+
     std::stringstream stream;
     stream << collect.grams;
-    scope("balance", stream.str());
+
+    writer_ptr->Key("status");
+    writer_ptr->String(status_name.c_str());
+    writer_ptr->Key("lastTransactLC");
+    writer_ptr->String(std::to_string(store.last_trans_lt).c_str());
+    writer_ptr->Key("balance");
+    writer_ptr->String(stream.str().c_str());
+
+    if(scope)
+        writer_ptr->EndObject();
 }
 
-void JsonHelper::append(JsonObjectScope &scope, ton::StdSmcAddress& addr) {
-    std::stringstream stream;
-    stream << addr.to_hex();
-    scope("address", stream.str());
-}
-
-void JsonHelper::append(JsonObjectScope &scope, block::AccountState::Info info) {
+void JsonHelper::fill_json(block::AccountState::Info info, bool scope) {
+    if(scope)
+        writer_ptr->StartObject();
     std::stringstream stream;
     stream << info.last_trans_lt;
-    scope("lastTransactTimeLC", stream.str());
-    scope("lastTransactHash", info.last_trans_hash.to_hex());
+    writer_ptr->Key("lastTransactTimeLC");
+    writer_ptr->String(stream.str().c_str());
+    writer_ptr->Key("lastTransactHash");
+    writer_ptr->String(info.last_trans_hash.to_hex().c_str());
     stream.str(string());
 
     {
@@ -103,56 +197,21 @@ void JsonHelper::append(JsonObjectScope &scope, block::AccountState::Info info) 
         CellSlice root_slice = load_cell_slice(info.root);
         std::vector<string> fields = {"code", "data"};
         for(unsigned int i = 0; i < fields.size(); i++) {
+            writer_ptr->Key(fields[i].c_str());
             Ref<Cell> cell = root_slice.prefetch_ref(i);
-            CellSlice slice = load_cell_slice(cell);
-            slice.dump_hex(stream);
-            scope(fields[i], stream.str());
-            stream.str(string());
+            if(cell.is_null()) {
+                writer_ptr->Null();
+            } else {
+                CellSlice slice = load_cell_slice(cell);
+                slice.dump_hex(stream);
+                writer_ptr->String(stream.str().c_str());
+                stream.str(string());
+            }
         }
     }
-}
 
-td::Slice JsonHelper::got_server_mc_block_id_json(
-    ton::BlockIdExt& blockId, 
-    std::vector<ton::BlockIdExt>& newBlocks
-) {
-    td::JsonBuilder out_json;
-    auto jo = out_json.enter_object();
-    liteclient::JsonHelper helper;
-    helper.append<JsonObjectScope, ton::BlockIdExt>(jo, blockId);
-    auto blk_ids_ptr = std::shared_ptr<std::vector<ton::BlockIdExt>>(new std::vector<ton::BlockIdExt>{});
-    td::JsonBuilder blk_list_builder;
-    auto blk_list = blk_list_builder.enter_array();
-    helper.append<JsonArrayScope, std::vector<ton::BlockIdExt>>(blk_list, newBlocks);
-    blk_list.leave();
-
-    jo("blocks", td::JsonRaw(blk_list_builder.string_builder().as_cslice()));
-    jo.leave();
-    return out_json.string_builder().as_cslice();
-}
-
-td::Slice JsonHelper::account_state(
-        ton::StdSmcAddress& addr,
-        block::gen::AccountStorage::Record& store,
-        block::AccountState::Info& info,
-        ton::WorkchainId& workchain
-) {
-    builder_ptr = std::shared_ptr<JsonBuilder>(new JsonBuilder);
-    auto jo = builder_ptr->enter_object();
-    append<JsonObjectScope, ton::StdSmcAddress>(jo, addr);
-    append<JsonObjectScope, block::gen::AccountStorage::Record>(jo, store);
-    append<JsonObjectScope, block::AccountState::Info>(jo, info);
-    jo("workchain", workchain);
-    jo.leave();
-    return td::Slice(builder_ptr->string_builder().as_cslice());
-}
-
-Slice JsonHelper::error_message(std::string msg) {
-    return one_attr_obj<std::string>("error", msg);
-}
-
-Slice JsonHelper::message(std::string msg) {
-    return one_attr_obj<std::string>("message", msg);
+    if(scope)
+        writer_ptr->EndObject();
 }
 
 }
