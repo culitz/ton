@@ -76,6 +76,18 @@ bool TransactionSerializeer::addMessageIn(CellRef msg) {
           msg_info.value = unpackFeeValue(info.value);
           msg_info.fwd_fee = unpackFeeValue(info.fwd_fee);
           msg_info.ihr_fee = unpackFeeValue(info.ihr_fee);
+
+          block::gen::MessageAny::Record anyRec;
+          block::gen::MessageAny any;
+
+          if(any.cell_unpack(msg, anyRec)) {
+            std::stringstream ss;
+            anyRec.x->print_rec(ss);
+            msg_info.body = ss.str();
+          } else {
+              msg_info.body = "";
+          }
+
           inMsg->back().push_back(msg_info);
         }
         default:

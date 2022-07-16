@@ -175,6 +175,9 @@ void fill_json(Writer& writer, const InMsgInfo info, bool scope) {
     writer.Key("value");
     writer.String(info.value.c_str());
 
+    writer.Key("body");
+    writer.String(info.body.c_str());
+
     writer.Key("src");
     writer.StartObject();
     writer.Key("workchain");
