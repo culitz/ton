@@ -42,6 +42,7 @@ void fill_json(Writer&, const block::Transaction::Info info, bool scope = true);
 void fill_json(Writer&, const block::gen::CommonMsgInfo::Record_int_msg_info msg, bool scope = true);
 void fill_json(Writer&, const InMsgInfo, bool scope = true);
 void fill_json(Writer&, const std::vector<InMsgInfo>, bool scope = true);
+void fill_json(Writer&, const std::vector<ton::BlockId>&, bool);
 
 bool unpack_addr(vm::Ref<vm::CellSlice> csr, ton::WorkchainId& out_wc, ton::StdSmcAddress& out_addr);
 

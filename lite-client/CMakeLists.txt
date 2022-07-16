@@ -28,6 +28,8 @@ add_executable(
   serializers/transactions_serializer.cpp
   serializers/account_serializer.h
   serializers/account_serializer.cpp
+  serializers/block_id_serializer.h
+  serializers/block_id_serializer.cpp
 )
 
 add_dependencies(lite-client rapidjson)

@@ -153,24 +153,7 @@ void fill_json(Writer& writer, const block::gen::CommonMsgInfo::Record_int_msg_i
     writer.Int(msg.ihr_disabled);
 }
 
-/**
- * @brief fill_json
- * @param scope
- *
- * struct InMsgInfo {
-    std::string inbound;
-    std::string ihr_disabled;
-    int bounce;
-    int bounced;
-    float value;
-    int ihr_fee;
-    int fwd_fee;
-    std::string body;
-    Src src;
-    Src dest;
-};
 
- */
 void fill_json(Writer& writer, const InMsgInfo info, bool scope) {
     if(scope)
         writer.StartObject();
@@ -216,6 +199,11 @@ void fill_json(Writer& writer, const std::vector<InMsgInfo> infoVect, bool scope
 
     if(scope)
         writer.EndArray();
+}
+
+void fill_json(Writer& writer, const std::vector<ton::BlockId>& ids, bool scope) {
+    for(auto& id: ids)
+        fill_json(writer, id);
 }
 
 

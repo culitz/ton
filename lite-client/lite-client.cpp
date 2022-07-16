@@ -66,6 +66,7 @@
 
 #include "lite-client/serializers/transactions_serializer.h"
 #include "lite-client/serializers/account_serializer.h"
+#include "lite-client/serializers/block_id_serializer.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
@@ -2629,9 +2630,12 @@ void TestNode::got_all_shards(ton::BlockIdExt blk, td::BufferSlice proof, td::Bu
           }
         }
       } else {
-        liteclient::JsonHelper json_helper;
-        std::string json = json_helper.got_all_shards(ids);
-        out << json << "\n";
+        // liteclient::JsonHelper json_helper;
+        // std::string json = json_helper.got_all_shards(ids);
+        // out << json << "\n";
+        json_serializer::BlockIdSerializer serializer;
+        for(const ton::BlockId& id : ids) { serializer.add(id); }
+        out << serializer.json() << std::endl;
       }
     }
     if (!filename.empty() && !json_out_) {

@@ -25,6 +25,7 @@ protected:
     JsonWriterPtr writer_ptr;
     std::shared_ptr<std::vector<T>> obj_ptr;
     size_t objectsCount;
+    bool always_array_wrap;
 
     virtual void fill() {
         bool needSelfScope = isMultiplie();
@@ -36,24 +37,32 @@ protected:
     }
 
     virtual void onFillEnd() {
-        if(!isMultiplie())
-            writer_ptr->EndObject();
-        else
+        if(always_array_wrap) {
             writer_ptr->EndArray();
+        } else {
+            if(!isMultiplie())
+                writer_ptr->EndObject();
+            else
+                writer_ptr->EndArray();
+        }
     }
 
     virtual void onFillStart() {
-        if(!isMultiplie())
-            writer_ptr->StartObject();
-        else
+        if(always_array_wrap) {
             writer_ptr->StartArray();
+        } else {
+            if(!isMultiplie())
+                writer_ptr->StartObject();
+            else
+                writer_ptr->StartArray();
+        }
     }
 
     virtual void beforeEach(size_t index) {}
     virtual void afterEach(size_t index) {}
 
 public:
-    Serializer() {
+    Serializer(bool always_wrap_array = false) : always_array_wrap(always_wrap_array) {
         objectsCount = 0;
         buffer_ptr = std::shared_ptr<JsonBuffer>(new JsonBuffer);
         writer_ptr = std::shared_ptr<JsonWriter>(new JsonWriter(*buffer_ptr));
