@@ -21,6 +21,16 @@ void TransactionSerializeer::fromBlock(TransactionInfo& info) {
     
 }
 
+std::string TransactionSerializeer::unpackFeeValue(vm::Ref<vm::CellSlice> csref) {
+  block::CurrencyCollection collection;
+  if(collection.unpack(csref)) {
+      std::stringstream ss;
+      ss << collection.grams;
+      return ss.str();
+  }
+  return "0";
+}
+
 bool TransactionSerializeer::addMessageIn(CellRef msg) {
     utils::InMsgInfo msg_info;
 
@@ -63,15 +73,9 @@ bool TransactionSerializeer::addMessageIn(CellRef msg) {
           msg_info.bounced = info.bounced;
           msg_info.ihr_disabled = info.ihr_disabled;
 
-
-          std::stringstream ss;
-          td::RefInt256 value;
-          CellRef extra;
-          block::unpack_CurrencyCollection(info.fwd_fee, value, extra);
-          ss << value;
-          msg_info.value = ss.str();
-//          msg_info.ihr_fee = (int) info.ihr_fee;
-//          msg_info.fwd_fee = (int) info.fwd_fee;          
+          msg_info.value = unpackFeeValue(info.value);
+          msg_info.fwd_fee = unpackFeeValue(info.fwd_fee);
+          msg_info.ihr_fee = unpackFeeValue(info.ihr_fee);
           inMsg->back().push_back(msg_info);
         }
         default:

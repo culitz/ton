@@ -24,7 +24,7 @@ private:
     typedef Serializer<TransactionInfo> Parent;
     std::shared_ptr<std::vector<utils::InMsgInfoVect>> inMsg;
     void unpackAddr(CellRef csr);
-
+    std::string unpackFeeValue(vm::Ref<vm::CellSlice> cs);
 protected:
     virtual void beforeEach(size_t index) override;
     virtual void afterEach(size_t index) override;

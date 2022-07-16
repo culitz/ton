@@ -167,6 +167,11 @@ void fill_json(Writer& writer, const InMsgInfo info, bool scope) {
     writer.Key("bounced");
     writer.Int(info.bounced);
 
+    writer.Key("fwd_fee");
+    writer.String(info.fwd_fee.c_str());
+    writer.Key("ihr_fee");
+    writer.String(info.ihr_fee.c_str());
+
     writer.Key("value");
     writer.String(info.value.c_str());
 

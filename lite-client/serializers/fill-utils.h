@@ -22,8 +22,8 @@ struct InMsgInfo {
     int bounce;
     int bounced;
     std::string value;
-    int ihr_fee;
-    int fwd_fee;
+    std::string ihr_fee;
+    std::string fwd_fee;
     std::string body;
     Src src;
     Src dest;
