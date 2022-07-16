@@ -223,8 +223,11 @@ bool TestNode::show_new_blkids(bool all) {
     shown_blk_ids_ = 0;
   }
   if(json_out_) {
-    std::string json = liteclient::JsonHelper().known(known_blk_ids_);
-    td::TerminalIO::out() << json << std::endl;
+    json_serializer::Serializer<ton::BlockIdExt> serializer(true);
+    for(const ton::BlockIdExt& id : known_blk_ids_) {
+      serializer.add(id);
+    }
+    td::TerminalIO::out() << serializer.json() << std::endl;
     return true;
   } else {
       int cnt = 0;
@@ -2630,9 +2633,6 @@ void TestNode::got_all_shards(ton::BlockIdExt blk, td::BufferSlice proof, td::Bu
           }
         }
       } else {
-        // liteclient::JsonHelper json_helper;
-        // std::string json = json_helper.got_all_shards(ids);
-        // out << json << "\n";
         json_serializer::BlockIdSerializer serializer;
         for(const ton::BlockId& id : ids) { serializer.add(id); }
         out << serializer.json() << std::endl;
